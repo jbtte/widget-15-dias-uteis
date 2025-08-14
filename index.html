@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>15 dias úteis anteriores</title>
+  <style>
+    :root { --bg: #0b0b0c; --fg: #f2f2f3; --muted: #a1a1aa; --card: #111114; --accent: #d1d5db; }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: #ffffff; --fg: #0b0b0c; --muted: #6b7280; --card: #f8fafc; --accent: #111827; }
+    }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); display: grid; place-items: center; }
+    .wrap { display: grid; gap: .5rem; padding: 2.5rem; text-align: center; background: var(--card); border-radius: 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .label { font-size: .95rem; color: var(--muted); }
+    .date { font-size: clamp(28px, 6vw, 64px); font-weight: 700; }
+    .sub { font-size: .95rem; color: var(--muted); }
+    .pill { display:inline-block; padding:.2rem .55rem; border:1px solid var(--accent); border-radius:999px; font-size:.8rem; color:var(--muted); }
+    .row { display:flex; gap:.5rem; justify-content:center; align-items:center; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+  <main class="wrap" id="app">
+    <div class="row"><span class="pill" id="offset-pill">D-15 úteis</span><span class="pill" id="tz-pill"></span></div>
+    <div class="label" id="today"></div>
+    <div class="date" id="result"></div>
+    <div class="sub" id="subtitle"></div>
+  </main>
+<script>
+(function(){
+  // === Config & URL params ===
+  const tz = 'America/Sao_Paulo';
+  const params = new URLSearchParams(location.search);
+  const offset = Number(params.get('offset') || 15);         // dias úteis para trás
+  const extraParam = (params.get('extra') || '').trim();     // YYYY-MM-DD,YYYY-MM-DD
+  const hideTz = params.get('hidetz') === '1';
+  const hideToday = params.get('hidetoday') === '1';
+  const jsonUrl = (params.get('json') || '').trim();         // URL de um JSON com feriados
+
+  // === Utils ===
+  function fmtDate(d, opts={}){ return new Intl.DateTimeFormat('pt-BR',{ timeZone: tz, ...opts }).format(d); }
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function ymd(d){
+    const p = new Intl.DateTimeFormat('en-CA',{ timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit' })
+      .formatToParts(d).reduce((a,x)=>{ a[x.type]=x.value; return a; },{});
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+  function addDays(date, days){ const d = new Date(date.getTime()); d.setUTCDate(d.getUTCDate()+days); return d; }
+
+  // === Páscoa & feriados nacionais BR ===
+  function easterDate(year){
+    const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+    const h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+    const month=Math.floor((h+l-7*m+114)/31),day=((h+l-7*m+114)%31)+1;
+    return new Date(Date.UTC(year,month-1,day,12,0,0));
+  }
+  function brazilHolidays(year){
+    const set=new Set(), add=(y,m,d)=>set.add(`${y}-${pad(m)}-${pad(d)}`);
+    // Fixos nacionais
+    add(year,1,1); add(year,4,21); add(year,5,1); add(year,9,7); add(year,10,12); add(year,11,2); add(year,11,15); add(year,12,25);
+    // Móveis
+    const easter=easterDate(year);
+    [-48,-47,-2,60].forEach(Δ=>set.add(ymd(addDays(easter,Δ)))); // seg/ter Carnaval, Sexta Santa, Corpus Christi
+    return set;
+  }
+
+  // === Extra por querystring ===
+  function parseExtra(extra){
+    const set = new Set(); if(!extra) return set;
+    extra.split(',').map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) set.add(s); });
+    return set;
+  }
+
+  function isWeekday(date){
+    const w = new Intl.DateTimeFormat('en-US',{ timeZone: tz, weekday:'short' })
+      .formatToParts(date).find(p=>p.type==='weekday').value;
+    return ['Mon','Tue','Wed','Thu','Fri'].includes(w);
+  }
+
+  // === JSON externo de feriados ===
+  async function fetchJsonHolidays(url){
+    try{
+      const res = await fetch(url, { cache: 'no-store' });
+      if(!res.ok) return new Set();
+      const data = await res.json();
+      const out = new Set();
+      const pushDates = (arr)=>{ if(Array.isArray(arr)) arr.forEach(d=>{ if(typeof d==='string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(d)) out.add(d); }); };
+
+      if(Array.isArray(data)){
+        // Ex.: ["2025-01-01","2025-04-21",...]
+        pushDates(data);
+      } else if (data && typeof data === 'object'){
+        // Flexível: { dates:[...] } ou { holidays:[...] } ou por ano: { "2025":[...], "common":[...] }
+        if(data.dates) pushDates(data.dates);
+        if(data.holidays) pushDates(data.holidays);
+        if(data.common) pushDates(data.common);
+        const yearKeys = Object.keys(data).filter(k=>/^\\d{4}$/.test(k));
+        yearKeys.forEach(k=> pushDates(data[k]));
+      }
+      return out;
+    }catch(_){ return new Set(); }
+  }
+
+  // === Principal ===
+  const now = new Date();
+  const yearNow = Number(fmtDate(now,{year:'numeric'}));
+  const holidays = new Set([
+    ...brazilHolidays(yearNow-1), ...brazilHolidays(yearNow), ...brazilHolidays(yearNow+1),
+    ...parseExtra(extraParam)
+  ]);
+
+  function businessDaysBack(fromDate, n){
+    let d = addDays(fromDate, -1), count = 0;
+    while(count < n){
+      const key = ymd(d);
+      if(isWeekday(d) && !holidays.has(key)){
+        count++; if(count === n) return d;
+      }
+      d = addDays(d, -1);
+    }
+    return d;
+  }
+
+  async function main(){
+    // Merge feriados vindos de JSON externo (se fornecido)
+    if(jsonUrl){
+      const j = await fetchJsonHolidays(jsonUrl);
+      for(const d of j) holidays.add(d);
+    }
+
+    const target = businessDaysBack(now, offset);
+
+    // Render
+    const todayEl = document.getElementById('today');
+    const resultEl = document.getElementById('result');
+    const subtitleEl = document.getElementById('subtitle');
+    const tzPill = document.getElementById('tz-pill');
+    const offsetPill = document.getElementById('offset-pill');
+
+    offsetPill.textContent = `D-${offset} úteis`;
+    if(!hideTz){ tzPill.textContent = `TZ: ${tz}`; } else { tzPill.remove(); }
+    if(!hideToday){ todayEl.textContent = `Hoje: ${fmtDate(now,{ weekday:'long', day:'2-digit', month:'2-digit', year:'numeric' })}`; }
+    else { todayEl.remove(); }
+
+    const targetMain = fmtDate(target,{ day:'2-digit', month:'2-digit', year:'numeric' });
+    const weekday = fmtDate(target,{ weekday:'long' });
+    resultEl.textContent = targetMain;
+    subtitleEl.textContent = `${weekday.charAt(0).toUpperCase()+weekday.slice(1)} • ${ymd(target)}`;
+
+    function postHeight(){ const h = document.documentElement.scrollHeight; parent && parent.postMessage && parent.postMessage({ type:'resize', height:h }, '*'); }
+    window.addEventListener('load', postHeight); setTimeout(postHeight, 100);
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>
