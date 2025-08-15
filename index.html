@@ -150,7 +150,6 @@
     function postHeight(){ const h = document.documentElement.scrollHeight; parent && parent.postMessage && parent.postMessage({ type:'resize', height:h }, '*'); }
     window.addEventListener('load', postHeight); setTimeout(postHeight, 100);
   }
-console.log("JSON URL:", jsonUrl, "lidas:", j.size, "datas");
   main();
 })();
 </script>
