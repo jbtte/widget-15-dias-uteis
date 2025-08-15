@@ -1,47 +1,46 @@
 # Widget Notion – 15 Dias Úteis Anteriores
 
 Este repositório contém dois arquivos principais:
-- `index.html`: código do widget que exibe a data de *N* dias úteis anteriores à data atual.
-- `holidays.json`: lista de feriados nacionais e específicos de um ano, usada para excluir dias não úteis do cálculo.
+- `index.html`: **versão padrão** (com moldura leve). Exibe a data correspondente a *N* dias úteis anteriores.
+- `widget.html`: **versão compacta para Notion** (fundo transparente, tipografia maior, sem bordas). Recomendada para incorporação.
+- `holidays.json`: lista de feriados a serem excluídos do cálculo (nacionais + específicos por ano).
 
-O objetivo é fornecer um **widget incorporável no Notion** que atualiza automaticamente todos os dias, mostrando a data que corresponde a um número definido de dias úteis atrás (por padrão, 15).
+O objetivo é fornecer um **widget incorporável no Notion** que atualiza automaticamente e mostra a data *D-*`offset` de **dias úteis** atrás (por padrão, 15).
 
 ## Como funciona
-1. O `index.html` calcula a data de *N* dias úteis antes de hoje.
+1. Calculamos *N* dias úteis antes de hoje.
 2. Dias não úteis incluem:
-   - Sábados e domingos
-   - Feriados nacionais fixos
-   - Feriados móveis nacionais (Carnaval, Sexta-feira Santa, Corpus Christi)
-   - Datas listadas no `holidays.json`
-3. O widget é incorporado no Notion via *embed*.
+   - Sábados e domingos;
+   - Feriados nacionais fixos;
+   - Feriados nacionais móveis (Carnaval seg/ter, Sexta-feira Santa, Corpus Christi);
+   - Datas definidas no `holidays.json` (e opcionais via `extra=`).
+3. O arquivo `holidays.json` é carregado via parâmetro `?json=`.
 
-## Uso
-1. Publique o repositório no GitHub Pages.
-2. No Notion, crie um *embed* com a URL:
-   ```
-   https://SEU_USUARIO.github.io/NOME_REPO/?offset=15&json=https://raw.githubusercontent.com/SEU_USUARIO/NOME_REPO/main/holidays.json
-   ```
-   - `offset`: número de dias úteis para retroceder (padrão: 15)
-   - `json`: URL do arquivo JSON com feriados
+## Como incorporar no Notion
+1. Publique este repositório no **GitHub Pages**.
+2. No Notion, use `/embed` e cole **uma** das URLs:
 
-## Atualização dos feriados
-O arquivo `holidays.json` possui duas chaves:
-- `common`: feriados nacionais fixos (aplicáveis a todos os anos)
-- `2025`: feriados específicos de 2025 (podendo incluir recesso forense, pontos facultativos, etc.)
-
-Para atualizar:
-1. No início de cada ano, adicione uma nova chave com o ano e a lista de feriados específicos.
-2. Mantenha `common` com os feriados nacionais fixos.
-
-Exemplo:
-```json
-{
-  "common": ["AAAA-01-01", "AAAA-04-21"],
-  "2025": ["2025-01-02", "2025-02-20"]
-}
+**Versão padrão (`index.html`):**
+```
+https://SEU_USUARIO.github.io/SEU_REPO/?offset=15&json=https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPO/main/holidays.json
 ```
 
-## Conteúdo atual (`holidays.json`)
+**Versão compacta (`widget.html`) — recomendada:**
+```
+https://SEU_USUARIO.github.io/SEU_REPO/widget.html?offset=15&json=https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPO/main/holidays.json
+```
+
+> Dica: ative **Full width** na página do Notion e ajuste o tamanho do bloco para melhor visualização.
+
+## Parâmetros de URL
+- `offset` — número de dias úteis para retroceder. Ex.: `offset=20`.
+- `json` — URL **raw** de um JSON com feriados. Ex.: `json=https://raw.githubusercontent.com/.../holidays.json`.
+- `extra` — datas adicionais (pontuais) separadas por vírgula. Ex.: `extra=2025-09-30,2025-10-03`.
+- `hidetoday` (apenas em `index.html`) — `1` para ocultar a linha "Hoje".
+- `hidetz` (apenas em `index.html`) — `1` para ocultar a pill de fuso horário.
+
+## Estrutura do `holidays.json`
+O arquivo aceita formatos flexíveis. Recomendado:
 ```json
 {
   "common": [
@@ -67,3 +66,24 @@ Exemplo:
   ]
 }
 ```
+
+Também é aceito:
+- Um array simples: `["AAAA-MM-DD", ...]`;
+- Um objeto com `dates`/`holidays`: `{ "dates": [ ... ] }`.
+
+## Atualização anual dos feriados
+- No início de cada ano, adicione uma nova chave com o ano (por ex. `"2026": [ ... ]`).
+- Mantenha os feriados nacionais fixos em `common`.
+- **Cache busting:** quando atualizar o JSON, acrescente um sufixo `?v=2` ao final da URL em `json=` no Notion para forçar a atualização.
+
+## Testes e depuração
+- **Teste fora do Notion**: abra a URL completa no navegador e verifique o resultado.
+- **Forçar um feriado**: inclua uma data próxima no `holidays.json` e confira se o cálculo "pula" esse dia.
+- **Console/Network**: abra as DevTools (F12) e confirme que há requisição `200` para o `holidays.json`.
+
+## Segurança e disponibilidade
+- Use URLs HTTPS públicas. Repositórios privados não funcionam no Notion.
+- Prefira `raw.githubusercontent.com` para o JSON.
+
+## Licença
+Use e adapte livremente. Se redistribuir, cite a fonte do repositório original quando possível.
