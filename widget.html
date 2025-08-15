@@ -5,13 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Data - N Dias Úteis Antes</title>
   <style>
+    :root {
+      --fg: #111;        /* cor do texto */
+      --muted: #666;     /* cor secundária */
+      --pill-bg: rgba(0,0,0,.06);
+      --pill-border: rgba(0,0,0,.18);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #fff;
+        --muted: #bbb;
+        --pill-bg: rgba(255,255,255,.08);
+        --pill-border: rgba(255,255,255,.24);
+      }
+    }
     html, body {
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
       background: transparent;
-      font-family: system-ui, sans-serif;
-      color: #111;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial;
+      color: var(--fg);
       text-align: center;
+    }
+    .wrap { display:grid; gap:.4rem; place-items:center; }
+    .pill {
+      display:inline-block;
+      padding:.22rem .58rem;
+      border:1px solid var(--pill-border);
+      border-radius:999px;
+      font-size:.82rem;
+      color: var(--muted);
+      background: var(--pill-bg);
+      user-select:none;
     }
     .date {
       font-size: clamp(36px, 8vw, 64px);
@@ -20,13 +44,16 @@
     }
     .sub {
       font-size: 1rem;
-      color: #666;
+      color: var(--muted);
     }
   </style>
 </head>
 <body>
-  <div id="date" class="date"></div>
-  <div id="sub" class="sub"></div>
+  <div class="wrap">
+    <div id="badge" class="pill"></div>
+    <div id="date" class="date"></div>
+    <div id="sub" class="sub"></div>
+  </div>
 
 <script>
 (async function(){
@@ -34,6 +61,39 @@
   const params = new URLSearchParams(location.search);
   const offset = Number(params.get('offset') || 15);
   const jsonUrl = params.get('json') || '';
+  const theme = (params.get('theme') || '').toLowerCase(); // 'dark' | 'light'
+  const colorParam = params.get('color');                   // ex: %23ffffff, #fff, rgb(...)
+
+  // === Tema/cores forçadas por query ===
+  if (theme === 'dark') {
+    document.documentElement.style.setProperty('--fg', '#ffffff');
+    document.documentElement.style.setProperty('--muted', '#bbbbbb');
+    document.documentElement.style.setProperty('--pill-bg', 'rgba(255,255,255,.08)');
+    document.documentElement.style.setProperty('--pill-border', 'rgba(255,255,255,.24)');
+  } else if (theme === 'light') {
+    document.documentElement.style.setProperty('--fg', '#111111');
+    document.documentElement.style.setProperty('--muted', '#666666');
+    document.documentElement.style.setProperty('--pill-bg', 'rgba(0,0,0,.06)');
+    document.documentElement.style.setProperty('--pill-border', 'rgba(0,0,0,.18)');
+  }
+  if (colorParam) {
+    // cor direta do texto
+    document.documentElement.style.setProperty('--fg', colorParam);
+    // ajustar contraste do badge automaticamente (leve)
+    const isLight = (() => {
+      const c = colorParam.replace('#','');
+      if (c.startsWith('rgb')) return false;
+      const hex = c.length===3 ? c.split('').map(x=>x+x).join('') : c;
+      const r = parseInt(hex.substring(0,2),16);
+      const g = parseInt(hex.substring(2,4),16);
+      const b = parseInt(hex.substring(4,6),16);
+      const luminance = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+      return luminance > 0.6;
+    })();
+    document.documentElement.style.setProperty('--muted', isLight ? '#444' : '#bbb');
+    document.documentElement.style.setProperty('--pill-bg', isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.08)');
+    document.documentElement.style.setProperty('--pill-border', isLight ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.24)');
+  }
 
   function fmtDate(d, opts={}) { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, ...opts }).format(d); }
   function pad(n) { return String(n).padStart(2,'0'); }
@@ -85,7 +145,6 @@
     ...brazilHolidays(yearNow),
     ...brazilHolidays(yearNow+1)
   ]);
-
   if(jsonUrl){
     const j = await fetchJsonHolidays(jsonUrl);
     for(const d of j) holidays.add(d);
@@ -103,8 +162,9 @@
   }
 
   const target = businessDaysBack(now, offset);
-  document.getElementById('date').textContent = fmtDate(target, { day:'2-digit', month:'2-digit', year:'numeric' });
-  document.getElementById('sub').textContent = fmtDate(target, { weekday:'long' });
+  document.getElementById('badge').textContent = `D-${offset} úteis`;
+  document.getElementById('date').textContent  = fmtDate(target, { day:'2-digit', month:'2-digit', year:'numeric' });
+  document.getElementById('sub').textContent   = fmtDate(target, { weekday:'long' });
 })();
 </script>
 </body>
