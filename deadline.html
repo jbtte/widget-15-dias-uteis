@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Calculadora de Data Limite — Dias Úteis</title>
+  <style>
+    :root {
+      --fg: #111;        /* texto padrão */
+      --muted: #666;     /* texto secundário */
+      --ok: #059669;
+      --warn: #b45309;
+      --pill-bg: rgba(0,0,0,.06);
+      --pill-border: rgba(0,0,0,.18);
+      --card: rgba(0,0,0,.03);
+      --card-border: rgba(0,0,0,.12);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #fff; --muted:#bbb;
+        --pill-bg: rgba(255,255,255,.08);
+        --pill-border: rgba(255,255,255,.24);
+        --card: rgba(255,255,255,.06);
+        --card-border: rgba(255,255,255,.18);
+      }
+    }
+    html, body { margin:0; padding:0; background: transparent; color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial; }
+    .container { max-width: 720px; margin: 24px auto; padding: 16px; }
+    h1 { font-size: clamp(20px, 3.4vw, 28px); margin: 0 0 8px; }
+    p.desc { margin: 0 0 16px; color: var(--muted); }
+
+    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 640px){ .grid { grid-template-columns: 1fr 1fr; } }
+
+    .field { display: grid; gap: 6px; }
+    label { font-size: .92rem; color: var(--muted); }
+    input, button, select { font: inherit; }
+    input[type="date"], input[type="number"], input[type="url"], select {
+      padding: .6rem .7rem; border: 1px solid var(--pill-border); background: var(--card); color: var(--fg); border-radius: .6rem;
+    }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .pill { display:inline-block; padding:.22rem .58rem; border:1px solid var(--pill-border); border-radius:999px; font-size:.82rem; color: var(--muted); background: var(--pill-bg); user-select:none; }
+    .actions { display:flex; gap: 10px; flex-wrap:wrap; margin-top: 6px; }
+    .btn { padding:.7rem 1rem; border-radius:.6rem; border:1px solid var(--pill-border); background: var(--card); color: var(--fg); cursor:pointer; }
+    .btn.primary { background: var(--fg); color: #111; border-color: var(--fg); }
+    @media (prefers-color-scheme: dark){ .btn.primary { color:#fff; } }
+
+    .result { margin-top: 16px; padding: 16px; border:1px solid var(--card-border); border-radius: .9rem; background: var(--card); }
+    .date { font-size: clamp(28px, 6vw, 48px); font-weight: 700; line-height: 1.1; }
+    .sub { color: var(--muted); margin-top: 4px; }
+    .hint { font-size: .9rem; color: var(--muted); }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+
+    .footer { margin-top: 18px; font-size: .85rem; color: var(--muted); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="row" style="justify-content:space-between; align-items:flex-end; margin-bottom:12px;">
+      <div>
+        <h1>Calculadora de Data Limite — Dias Úteis</h1>
+        <p class="desc">Informe a <strong>data inicial</strong> e o <strong>número de dias úteis</strong>. O resultado considera fins de semana, feriados nacionais e os feriados do seu <code>holidays.json</code>.</p>
+      </div>
+      <div class="pill" id="badge">D+15 úteis</div>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="start">Data inicial</label>
+        <input type="date" id="start" />
+        <label class="row" style="gap:6px;">
+          <input type="checkbox" id="includeStart" />
+          <span class="hint">Contar a data inicial como o 1º dia útil</span>
+        </label>
+      </div>
+      <div class="field">
+        <label for="days">Número de dias úteis</label>
+        <input type="number" id="days" min="0" step="1" value="15" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="calc">Calcular</button>
+      <button class="btn" id="todayBtn">Usar hoje</button>
+    </div>
+
+    <div class="result" id="resultCard" hidden>
+      <div class="date" id="result"></div>
+      <div class="sub" id="weekday"></div>
+      <div class="sub" id="iso"></div>
+    </div>
+
+    <div class="footer">
+      <span class="pill" id="jsonInfo">Sem JSON</span>
+      <span class="hint">Parâmetros: <code>?json=URL</code> • <code>?extra=YYYY-MM-DD,YYYY-MM-DD</code> • <code>?theme=dark|light</code> • <code>?color=%23ffffff</code></span>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const tz = 'America/Sao_Paulo';
+  const params = new URLSearchParams(location.search);
+  const defaultOffset = Number(params.get('offset') || 15);
+  const jsonUrl = (params.get('json') || '').trim();
+  const extraParam = (params.get('extra') || '').trim();
+  const theme = (params.get('theme') || '').toLowerCase();
+  const colorParam = params.get('color');
+
+  // === Tema/cores opcionais ===
+  if (theme === 'dark') {
+    document.documentElement.style.setProperty('--fg', '#ffffff');
+    document.documentElement.style.setProperty('--muted', '#bbbbbb');
+    document.documentElement.style.setProperty('--pill-bg', 'rgba(255,255,255,.08)');
+    document.documentElement.style.setProperty('--pill-border', 'rgba(255,255,255,.24)');
+    document.documentElement.style.setProperty('--card', 'rgba(255,255,255,.06)');
+    document.documentElement.style.setProperty('--card-border', 'rgba(255,255,255,.18)');
+  } else if (theme === 'light') {
+    document.documentElement.style.setProperty('--fg', '#111111');
+    document.documentElement.style.setProperty('--muted', '#666666');
+    document.documentElement.style.setProperty('--pill-bg', 'rgba(0,0,0,.06)');
+    document.documentElement.style.setProperty('--pill-border', 'rgba(0,0,0,.18)');
+    document.documentElement.style.setProperty('--card', 'rgba(0,0,0,.03)');
+    document.documentElement.style.setProperty('--card-border', 'rgba(0,0,0,.12)');
+  }
+  if (colorParam) {
+    document.documentElement.style.setProperty('--fg', colorParam);
+    const c = (''+colorParam).replace('#','');
+    if (!c.startsWith('rgb')) {
+      const hex = c.length===3 ? c.split('').map(x=>x+x).join('') : c;
+      const r = parseInt(hex.substring(0,2),16);
+      const g = parseInt(hex.substring(2,4),16);
+      const b = parseInt(hex.substring(4,6),16);
+      const lum = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+      const isLight = lum > 0.6;
+      document.documentElement.style.setProperty('--muted', isLight ? '#444' : '#bbb');
+      document.documentElement.style.setProperty('--pill-bg', isLight ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.08)');
+      document.documentElement.style.setProperty('--pill-border', isLight ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.24)');
+      document.documentElement.style.setProperty('--card', isLight ? 'rgba(0,0,0,.03)' : 'rgba(255,255,255,.06)');
+      document.documentElement.style.setProperty('--card-border', isLight ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.18)');
+    }
+  }
+
+  // === Utilidades de data ===
+  function fmtDate(d, opts={}){ return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, ...opts }).format(d); }
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function ymd(d){
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit'})
+      .formatToParts(d).reduce((a,x)=>{a[x.type]=x.value;return a;},{});
+    return `${p.year}-${p.month}-${p.day}`;
+  }
+  function parseYMD(s){ // 'YYYY-MM-DD' -> Date (UTC noon)
+    const [Y,M,D] = s.split('-').map(Number);
+    return new Date(Date.UTC(Y, M-1, D, 12, 0, 0));
+  }
+  function addDays(date, days){ const d = new Date(date.getTime()); d.setUTCDate(d.getUTCDate()+days); return d; }
+
+  function easterDate(year){
+    const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+    const h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+    const month=Math.floor((h+l-7*m+114)/31),day=((h+l-7*m+114)%31)+1;
+    return new Date(Date.UTC(year,month-1,day,12,0,0));
+  }
+  function brazilHolidays(year){
+    const set=new Set(), add=(y,m,d)=>set.add(`${y}-${pad(m)}-${pad(d)}`);
+    add(year,1,1);add(year,4,21);add(year,5,1);add(year,9,7);add(year,10,12);add(year,11,2);add(year,11,15);add(year,12,25);
+    const easter=easterDate(year);
+    [ -48, -47, -2, 60 ].forEach(function(delta){ set.add( ymd(addDays(easter, delta)) ); });
+    return set;
+  }
+  function parseExtra(extra){ const set=new Set(); if(!extra) return set; extra.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(s){ if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) set.add(s); }); return set; }
+  function isWeekday(date){ var parts = new Intl.DateTimeFormat('en-US',{ timeZone: tz, weekday:'short'}).formatToParts(date); var w = parts.find(function(p){return p.type==='weekday';}).value; return ['Mon','Tue','Wed','Thu','Fri'].includes(w); }
+
+  async function fetchJsonHolidays(url){
+    try{
+      const res = await fetch(url, { cache: 'no-store' });
+      if(!res.ok) return new Set();
+      const data = await res.json();
+      const out = new Set();
+      const pushDates = function(arr){ if(Array.isArray(arr)) arr.forEach(function(d){ if(typeof d==='string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d)) out.add(d); }); };
+      if(Array.isArray(data)) pushDates(data);
+      else if (data && typeof data==='object'){
+        if(data.dates) pushDates(data.dates);
+        if(data.holidays) pushDates(data.holidays);
+        if(data.common) pushDates(data.common);
+        const yearKeys = Object.keys(data).filter(function(k){ return /^[0-9]{4}$/.test(k); });
+        yearKeys.forEach(function(k){ pushDates(data[k]); });
+      }
+      return out;
+    }catch(_){ return new Set(); }
+  }
+
+  const holidays = new Set();
+  (async function init(){
+    const now = new Date();
+    const yearNow = Number(fmtDate(now, {year:'numeric'}));
+    // Nacional + adjacentes
+    [yearNow-1, yearNow, yearNow+1].forEach(function(y){
+      brazilHolidays(y).forEach(function(d){ holidays.add(d); });
+    });
+    // Extra por query
+    parseExtra(extraParam).forEach(function(d){ holidays.add(d); });
+    // JSON externo
+    const info = document.getElementById('jsonInfo');
+    if(jsonUrl){
+      const j = await fetchJsonHolidays(jsonUrl);
+      j.forEach(function(d){ holidays.add(d); });
+      info.textContent = 'JSON ok: ' + j.size + ' datas';
+    } else {
+      info.textContent = 'Sem JSON';
+    }
+
+    // UI defaults
+    const startInput = document.getElementById('start');
+    const daysInput = document.getElementById('days');
+    const includeStart = document.getElementById('includeStart');
+    daysInput.value = String(defaultOffset);
+    document.getElementById('badge').textContent = 'D+'+defaultOffset+' úteis';
+
+    // Preencher com hoje (no fuso do widget)
+    const todayStr = ymd(now);
+    startInput.value = todayStr;
+
+    document.getElementById('todayBtn').addEventListener('click', function(){
+      startInput.value = ymd(new Date());
+    });
+
+    document.getElementById('calc').addEventListener('click', function(){
+      const startVal = startInput.value;
+      const n = Math.max(0, Number(daysInput.value||0));
+      document.getElementById('badge').textContent = 'D+'+n+' úteis';
+      if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(startVal)){
+        alert('Preencha uma data inicial válida (YYYY-MM-DD).');
+        return;
+      }
+      const start = parseYMD(startVal);
+      const res = addBusinessDays(start, n, { includeStart: includeStart.checked });
+      render(res);
+    });
+
+    // Cálculo inicial automático
+    const res0 = addBusinessDays(parseYMD(startInput.value), defaultOffset, { includeStart: includeStart.checked });
+    render(res0);
+  })();
+
+  function addBusinessDays(startDate, n, opts){
+    opts = opts || {}; var includeStart = !!opts.includeStart;
+    var d = new Date(startDate.getTime());
+    var count = (includeStart && isBusinessDay(d)) ? 1 : 0;
+    if(count===n) return d;
+    if(!includeStart) d = addDays(d, 1); // começa no dia seguinte
+    while(count < n){
+      if(isBusinessDay(d)){
+        count++;
+        if(count===n) return d;
+      }
+      d = addDays(d, 1);
+    }
+    return d;
+  }
+
+  function isBusinessDay(date){
+    return isWeekday(date) && !holidays.has(ymd(date));
+  }
+
+  function render(date){
+    const card = document.getElementById('resultCard');
+    document.getElementById('result').textContent = fmtDate(date, { day:'2-digit', month:'2-digit', year:'numeric' });
+    document.getElementById('weekday').textContent = fmtDate(date, { weekday:'long' });
+    document.getElementById('iso').textContent = ymd(date);
+    card.hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
