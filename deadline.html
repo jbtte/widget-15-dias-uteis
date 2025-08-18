@@ -25,7 +25,7 @@
       }
     }
     html, body { margin:0; padding:0; background: transparent; color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial; }
-    .container { max-width: 720px; margin: 24px auto; padding: 16px; }
+    .container { max-width: 760px; margin: 24px auto; padding: 16px; }
     h1 { font-size: clamp(20px, 3.4vw, 28px); margin: 0 0 8px; }
     p.desc { margin: 0 0 16px; color: var(--muted); }
 
@@ -49,10 +49,13 @@
     .date { font-size: clamp(28px, 6vw, 48px); font-weight: 700; line-height: 1.1; }
     .sub { color: var(--muted); margin-top: 4px; }
     .hint { font-size: .9rem; color: var(--muted); }
-    .ok { color: var(--ok); }
-    .warn { color: var(--warn); }
 
     .footer { margin-top: 18px; font-size: .85rem; color: var(--muted); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
+    .holidays { margin-top: 12px; padding: 12px; border:1px dashed var(--card-border); border-radius: .8rem; background: var(--card); }
+    .holidays h3 { margin: 0 0 8px; font-size: .98rem; color: var(--muted); font-weight: 600; }
+    .holidays ul { margin: 0; padding-left: 18px; }
+    .holidays li { margin: 2px 0; }
   </style>
 </head>
 <body>
@@ -89,6 +92,11 @@
       <div class="date" id="result"></div>
       <div class="sub" id="weekday"></div>
       <div class="sub" id="iso"></div>
+    </div>
+
+    <div class="holidays" id="holidaysCard" hidden>
+      <h3>Feriados considerados no intervalo</h3>
+      <ul id="holidaysUl"></ul>
     </div>
 
     <div class="footer">
@@ -165,88 +173,65 @@
     const set=new Set(), add=(y,m,d)=>set.add(`${y}-${pad(m)}-${pad(d)}`);
     add(year,1,1);add(year,4,21);add(year,5,1);add(year,9,7);add(year,10,12);add(year,11,2);add(year,11,15);add(year,12,25);
     const easter=easterDate(year);
-    [ -48, -47, -2, 60 ].forEach(function(delta){ set.add( ymd(addDays(easter, delta)) ); });
+    [ -48, -47, -2, 60 ].forEach(Δ=>set.add(ymd(addDays(easter,Δ)))); // seg/ter Carnaval, Sexta Santa, Corpus Christi
     return set;
   }
-  function parseExtra(extra){ const set=new Set(); if(!extra) return set; extra.split(',').map(function(s){return s.trim();}).filter(Boolean).forEach(function(s){ if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) set.add(s); }); return set; }
-  function isWeekday(date){ var parts = new Intl.DateTimeFormat('en-US',{ timeZone: tz, weekday:'short'}).formatToParts(date); var w = parts.find(function(p){return p.type==='weekday';}).value; return ['Mon','Tue','Wed','Thu','Fri'].includes(w); }
+  function parseExtra(extra){
+    const set = new Set(); if(!extra) return set;
+    extra.split(',').map(s=>s.trim()).filter(Boolean).forEach(s=>{ if(/^\d{4}-\d{2}-\d{2}$/.test(s)) set.add(s); });
+    return set;
+  }
+  function isWeekday(date){
+    const w = new Intl.DateTimeFormat('en-US',{ timeZone: tz, weekday:'short' })
+      .formatToParts(date).find(p=>p.type==='weekday').value;
+    return ['Mon','Tue','Wed','Thu','Fri'].includes(w);
+  }
 
+  // === JSON externo de feriados ===
   async function fetchJsonHolidays(url){
     try{
       const res = await fetch(url, { cache: 'no-store' });
       if(!res.ok) return new Set();
       const data = await res.json();
       const out = new Set();
-      const pushDates = function(arr){ if(Array.isArray(arr)) arr.forEach(function(d){ if(typeof d==='string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d)) out.add(d); }); };
-      if(Array.isArray(data)) pushDates(data);
-      else if (data && typeof data==='object'){
+      const pushDates = (arr)=>{ if(Array.isArray(arr)) arr.forEach(d=>{ if(typeof d==='string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) out.add(d); }); };
+
+      if(Array.isArray(data)){
+        pushDates(data);
+      } else if (data && typeof data === 'object'){
         if(data.dates) pushDates(data.dates);
         if(data.holidays) pushDates(data.holidays);
         if(data.common) pushDates(data.common);
-        const yearKeys = Object.keys(data).filter(function(k){ return /^[0-9]{4}$/.test(k); });
-        yearKeys.forEach(function(k){ pushDates(data[k]); });
+        const yearKeys = Object.keys(data).filter(k=>/^\d{4}$/.test(k));
+        yearKeys.forEach(k=> pushDates(data[k]));
       }
       return out;
     }catch(_){ return new Set(); }
   }
 
-  const holidays = new Set();
-  (async function init(){
-    const now = new Date();
-    const yearNow = Number(fmtDate(now, {year:'numeric'}));
-    // Nacional + adjacentes
-    [yearNow-1, yearNow, yearNow+1].forEach(function(y){
-      brazilHolidays(y).forEach(function(d){ holidays.add(d); });
-    });
-    // Extra por query
-    parseExtra(extraParam).forEach(function(d){ holidays.add(d); });
-    // JSON externo
-    const info = document.getElementById('jsonInfo');
-    if(jsonUrl){
-      const j = await fetchJsonHolidays(jsonUrl);
-      j.forEach(function(d){ holidays.add(d); });
-      info.textContent = 'JSON ok: ' + j.size + ' datas';
-    } else {
-      info.textContent = 'Sem JSON';
-    }
+  // === Principal ===
+  const now = new Date();
+  const yearNow = Number(fmtDate(now,{year:'numeric'}));
+  const holidays = new Set([
+    ...brazilHolidays(yearNow-1), ...brazilHolidays(yearNow), ...brazilHolidays(yearNow+1),
+    ...parseExtra(extraParam)
+  ]);
 
-    // UI defaults
-    const startInput = document.getElementById('start');
-    const daysInput = document.getElementById('days');
-    const includeStart = document.getElementById('includeStart');
-    daysInput.value = String(defaultOffset);
-    document.getElementById('badge').textContent = 'D+'+defaultOffset+' úteis';
-
-    // Preencher com hoje (no fuso do widget)
-    const todayStr = ymd(now);
-    startInput.value = todayStr;
-
-    document.getElementById('todayBtn').addEventListener('click', function(){
-      startInput.value = ymd(new Date());
-    });
-
-    document.getElementById('calc').addEventListener('click', function(){
-      const startVal = startInput.value;
-      const n = Math.max(0, Number(daysInput.value||0));
-      document.getElementById('badge').textContent = 'D+'+n+' úteis';
-      if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(startVal)){
-        alert('Preencha uma data inicial válida (YYYY-MM-DD).');
-        return;
+  function businessDaysBack(fromDate, n){
+    let d = addDays(fromDate, -1), count = 0;
+    while(count < n){
+      const key = ymd(d);
+      if(isWeekday(d) && !holidays.has(key)){
+        count++; if(count === n) return d;
       }
-      const start = parseYMD(startVal);
-      const res = addBusinessDays(start, n, { includeStart: includeStart.checked });
-      render(res);
-    });
+      d = addDays(d, -1);
+    }
+    return d;
+  }
 
-    // Cálculo inicial automático
-    const res0 = addBusinessDays(parseYMD(startInput.value), defaultOffset, { includeStart: includeStart.checked });
-    render(res0);
-  })();
-
-  function addBusinessDays(startDate, n, opts){
-    opts = opts || {}; var includeStart = !!opts.includeStart;
-    var d = new Date(startDate.getTime());
-    var count = (includeStart && isBusinessDay(d)) ? 1 : 0;
+  function addBusinessDays(startDate, n, { includeStart=false }={}){
+    let d = new Date(startDate.getTime());
+    let count = includeStart && isBusinessDay(d) ? 1 : 0;
     if(count===n) return d;
     if(!includeStart) d = addDays(d, 1); // começa no dia seguinte
     while(count < n){
@@ -263,13 +248,93 @@
     return isWeekday(date) && !holidays.has(ymd(date));
   }
 
-  function render(date){
-    const card = document.getElementById('resultCard');
-    document.getElementById('result').textContent = fmtDate(date, { day:'2-digit', month:'2-digit', year:'numeric' });
-    document.getElementById('weekday').textContent = fmtDate(date, { weekday:'long' });
-    document.getElementById('iso').textContent = ymd(date);
-    card.hidden = false;
+  function listHolidaysBetween(a, b){
+    // retorna lista de datas (YYYY-MM-DD) de feriados em dias de semana, no intervalo inclusivo [min,max]
+    const start = a.getTime() <= b.getTime() ? a : b;
+    const end   = a.getTime() <= b.getTime() ? b : a;
+    const out = [];
+    let d = new Date(start.getTime());
+    while(d.getTime() <= end.getTime()){
+      const key = ymd(d);
+      if(holidays.has(key) && isWeekday(d)) out.push(new Date(d));
+      d = addDays(d, 1);
+    }
+    // ordenar por data
+    out.sort((x,y)=> x.getTime()-y.getTime());
+    return out;
   }
+
+  async function main(){
+    // Merge feriados vindos de JSON externo (se fornecido)
+    const info = document.getElementById('jsonInfo');
+    if(jsonUrl){
+      const j = await fetchJsonHolidays(jsonUrl);
+      for(const d of j) holidays.add(d);
+      info.textContent = `JSON ok: ${j.size} datas`;
+    } else {
+      info.textContent = 'Sem JSON';
+    }
+
+    const todayStr = ymd(now);
+    const startInput = document.getElementById('start');
+    const daysInput = document.getElementById('days');
+    const includeStart = document.getElementById('includeStart');
+    const holidaysCard = document.getElementById('holidaysCard');
+    const holidaysUl = document.getElementById('holidaysUl');
+
+    daysInput.value = String(defaultOffset);
+    document.getElementById('badge').textContent = `D+${defaultOffset} úteis`;
+    startInput.value = todayStr;
+
+    document.getElementById('todayBtn').addEventListener('click', ()=>{
+      startInput.value = ymd(new Date());
+    });
+
+    document.getElementById('calc').addEventListener('click', ()=>{
+      const startVal = startInput.value;
+      const n = Math.max(0, Number(daysInput.value||0));
+      document.getElementById('badge').textContent = `D+${n} úteis`;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(startVal)){
+        alert('Preencha uma data inicial válida (YYYY-MM-DD).');
+        return;
+      }
+      const start = parseYMD(startVal);
+      const res = addBusinessDays(start, n, { includeStart: includeStart.checked });
+      render(start, res);
+      renderHolidays(start, res);
+    });
+
+    // Cálculo inicial automático
+    const start0 = parseYMD(startInput.value);
+    const res0 = addBusinessDays(start0, defaultOffset, { includeStart: includeStart.checked });
+    render(start0, res0);
+    renderHolidays(start0, res0);
+
+    function render(base, date){
+      const card = document.getElementById('resultCard');
+      document.getElementById('result').textContent = fmtDate(date, { day:'2-digit', month:'2-digit', year:'numeric' });
+      document.getElementById('weekday').textContent = fmtDate(date, { weekday:'long' });
+      document.getElementById('iso').textContent = ymd(date);
+      card.hidden = false;
+    }
+
+    function renderHolidays(base, target){
+      const items = listHolidaysBetween(base, target);
+      holidaysUl.innerHTML = '';
+      if(items.length === 0){
+        holidaysUl.innerHTML = '<li>Nenhum feriado no intervalo.</li>';
+      } else {
+        for(const d of items){
+          const li = document.createElement('li');
+          li.textContent = `${fmtDate(d,{day:'2-digit',month:'2-digit',year:'numeric'})} (${fmtDate(d,{weekday:'long'})})`;
+          holidaysUl.appendChild(li);
+        }
+      }
+      holidaysCard.hidden = false;
+    }
+  }
+
+  main();
 })();
 </script>
 </body>
