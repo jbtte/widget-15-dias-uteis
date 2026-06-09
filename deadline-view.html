@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Resultado — 15 Dias Úteis</title>
+  <title>Resultado — Prazo em Dias Úteis</title>
   <style>
     :root{ --bg: #000000; --fg: #ffffff; --muted: #bbbbbb; --pill-bg:rgba(0,0,0,.06); --pill-border:rgba(0,0,0,.18); --card:rgba(0,0,0,.03); --card-border:rgba(0,0,0,.12); }
     @media (prefers-color-scheme: dark){ :root{ --fg:#fff; --muted:#bbb; --pill-bg:rgba(255,255,255,.08); --pill-border:rgba(255,255,255,.24); --card:rgba(255,255,255,.06); --card-border:rgba(255,255,255,.18);} }
@@ -11,6 +11,10 @@
     .wrap{max-width:760px;margin:16px auto;padding:8px 12px}
     .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .pill{display:inline-block;padding:.22rem .58rem;border:1px solid var(--pill-border);border-radius:999px;font-size:.82rem;color:var(--muted);background:var(--pill-bg);user-select:none}
+    .days-toggle{display:flex;gap:0;border:1px solid var(--pill-border);border-radius:999px;overflow:hidden;background:var(--pill-bg)}
+    .days-toggle button{font:inherit;font-size:.82rem;padding:.22rem .58rem;border:none;background:transparent;color:var(--muted);cursor:pointer;border-radius:0;transition:background .15s,color .15s}
+    .days-toggle button.active{background:var(--fg);color:var(--bg);font-weight:600}
+    .days-toggle button:first-child{border-right:1px solid var(--pill-border)}
     label{font-size:.9rem;color:var(--muted)}
     input[type="date"]{font:inherit;padding:.45rem .6rem;border-radius:.6rem;border:1px solid var(--pill-border);background:var(--card);color:var(--fg)}
     .main{display:grid;gap:.4rem;place-items:center;text-align:center;margin-top:10px}
@@ -25,7 +29,10 @@
         <span class="pill">Data inicial</span>
         <input id="start" type="date" />
       </div>
-      <div id="badge" class="pill">D+15 úteis</div>
+      <div class="days-toggle">
+        <button id="btn5">5 úteis</button>
+        <button id="btn15">15 úteis</button>
+      </div>
     </div>
     <div class="main">
       <div id="date" class="date"></div>
@@ -42,7 +49,7 @@
   const theme=(q.get('theme')||'').toLowerCase();
   const colorParam=q.get('color');
   const includeStart=q.get('includeStart')==='1';
-  const FIXED_DAYS=15; // fixo em 15 dias úteis
+  let FIXED_DAYS=Number(q.get('days')||15);
 
   // Tema/cor forçada
   if(theme==='dark'){
@@ -100,10 +107,20 @@
   function addBiz(from,n,includeStart){ let d=new Date(from.getTime()); let count=(includeStart && isBiz(d))?1:0; if(count===n) return d; if(!includeStart) d=addDays(d,1); while(count<n){ if(isBiz(d)){ count++; if(count===n) return d; } d=addDays(d,1);} return d; }
 
   const startInput=document.getElementById('start');
-  const badge=document.getElementById('badge');
   const dateEl=document.getElementById('date');
   const subEl=document.getElementById('sub');
-  badge.textContent=`D+${FIXED_DAYS} úteis`;
+  const btn5=document.getElementById('btn5');
+  const btn15=document.getElementById('btn15');
+
+  function setDays(n){
+    FIXED_DAYS=n;
+    btn5.classList.toggle('active', n===5);
+    btn15.classList.toggle('active', n===15);
+    recalc();
+  }
+
+  btn5.addEventListener('click', ()=>setDays(5));
+  btn15.addEventListener('click', ()=>setDays(15));
 
   const startParam=q.get('start');
   const base = (startParam && /^\d{4}-\d{2}-\d{2}$/.test(startParam)) ? parseYMD(startParam) : now;
@@ -120,7 +137,7 @@
   }
 
   startInput.addEventListener('change', recalc);
-  recalc();
+  setDays(FIXED_DAYS);
 })();
 </script>
 </body>
